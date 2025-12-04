@@ -11,7 +11,7 @@ inputs:
     required: true
 
   sdk-version:
-    description: 'The Qwak-SDK version required to trigger this deploy. [Default: latest]'
+    description: 'The Qwak-SDK version required to trigger this build, can be 0.5.X. [Default: latest]'
     required: false
 
   deploy-type:
@@ -24,6 +24,10 @@ inputs:
 
   build-id:
     description: The Build ID to be deployed. If not specified, the latest successful build will be deployed.
+    required: false
+
+  tags:
+    description: A list of comma separated tags to filter builds by. If tags are provided, the latest successful build with the specified tags will be deployed.
     required: false
 
   param-list:
@@ -83,7 +87,7 @@ runs:
         if [[ -z "${{ inputs.sdk-version }}" ]]; then
           pip3 install qwak-sdk
         else
-          pip3 install qwak-sdk==${{ inputs.sdk-version }} || { echo "Error: Invalid or not found Qwak-SDK version: ${{ inputs.sdk-version }}"; exit 1; }
+          pip3 install qwak-sdk==${{ inputs.sdk-version }}
         fi
 
     - name: Configure qwak-sdk
@@ -97,6 +101,7 @@ runs:
       env:
         MODEL_ID: ${{ inputs.model-id }}
         BUILD_ID: ${{ inputs.build-id }}
+        TAGS: ${{ inputs.tags }}
         DEPLOY_TYPE: ${{ inputs.deploy-type }}
         PARAM_LIST: ${{ inputs.param-list }}
         ENV_VARS: ${{ inputs.env-vars }}

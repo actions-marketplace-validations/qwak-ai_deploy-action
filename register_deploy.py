@@ -1,5 +1,5 @@
+from qwak.qwak_client.builds.build import BuildStatus
 from qwak import QwakClient
-
 import subprocess
 import re
 import os
@@ -8,6 +8,9 @@ import time
 
 
 SLEEP_BETWEEN_STATUS_QUERY = 10.0
+
+# Initialize the Qwak client
+_qwak_client = QwakClient()
 
 # Define a dictionary to map status codes to their string representations
 _status_code_to_name = {
@@ -39,17 +42,51 @@ def deploy_command():
     # Deployment Type
     deploy_type = os.getenv('DEPLOY_TYPE')
     if deploy_type:
-        command.append(deploy_type)
+        if deploy_type in ['realtime', 'batch', 'stream']:
+            command.append(deploy_type)
+        else:
+            print(f"Deployment type {deploy_type} is invalid. Please use realtime, batch or stream.")
+            exit(1)
 
     # Model ID
     model_id = os.getenv('MODEL_ID')
     if model_id:
         command.extend(["--model-id", model_id])
 
+    # Tags List - will be used later
+    tags_list = os.getenv('TAGS')
+
     # Build ID
     build_id = os.getenv('BUILD_ID')
     if build_id:
         command.extend(["--build-id", build_id])
+        print( "Build ID was specified, ignoring TAGS.\n")
+
+    elif tags_list:
+        tags = tags_list.split(",")
+
+        print (f"The following Tags were specified: {tags} -> Looking for the latest SUCCESSFUL build with these Tags.\n")
+
+        builds = _qwak_client.get_builds_by_tags(model_id=model_id,
+                                        tags=tags)
+        if builds:
+            successful_builds = [build for build in builds if build.build_status == BuildStatus.SUCCESSFUL]
+
+            if successful_builds:
+                successful_builds.sort(key=lambda r: r.created_at)
+
+                command.extend(["--build-id", successful_builds[-1].build_id])
+
+                print (f"Found successful Build with the specified tags - Build ID: {successful_builds[-1].build_id}\n")
+            else: 
+                print ("No successful builds with these tags were found. Exiting...\n")
+                exit(1)
+        else: 
+            print ("No builds with these tags were found. Exiting...\n")
+            exit(1)
+
+    else:
+        print("Neither BUILD_ID nor TAGS provided -> Deploying the latest successful Build.\n")
 
     # Parameter List
     param_list = os.getenv('PARAM_LIST')
@@ -88,16 +125,13 @@ def deploy_command():
 
     # Timeout After
     timeout_after = os.getenv('TIMEOUT_AFTER')
-    if timeout_after:
+    if deploy_type == "realtime" and timeout_after:
         command.extend(["--timeout", timeout_after])
 
     return " ".join(command)
 
 
 def wait_for_deployment(deployment_id: str, timeout: int) -> str:
-
-    # Initialize the Qwak client
-    qwak_client = QwakClient()
 
     # Record the start time to track how long we've been waiting
     start_time = time.time()
@@ -111,7 +145,7 @@ def wait_for_deployment(deployment_id: str, timeout: int) -> str:
             time.sleep(SLEEP_BETWEEN_STATUS_QUERY)
 
             # Get the current deployment object from the Qwak client
-            deployment_status_object = qwak_client._get_deployment_management().get_deployment_status(deployment_id)
+            deployment_status_object = _qwak_client._get_deployment_management().get_deployment_status(deployment_id)
 
             verbal_deployment_status = _get_status_name(deployment_status_object.status)
 
@@ -147,7 +181,7 @@ def wait_for_deployment(deployment_id: str, timeout: int) -> str:
 
 if __name__ == '__main__':
 
-    timeout_for_failing = int(os.getenv('INPUT_TIMEOUT_AFTER', 30)) # Default 30 minutes
+    timeout_for_failing = int(os.getenv('TIMEOUT_AFTER', 30)) # Default 30 minutes
  
     qwak_deploy_model_command = deploy_command()
     print(f"Printing the Qwak CLI command for debug purposes:\n{qwak_deploy_model_command}\n")
